@@ -1,0 +1,6 @@
+aiogram
+requests
+python-dotenv
+aiosqlite
+yookassa
+aiocryptopay
