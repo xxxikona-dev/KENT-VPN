@@ -1,0 +1,4 @@
+.env
+vpn_bot.db
+__pycache__/
+*.pyc
