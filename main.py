@@ -299,7 +299,7 @@ async def support_sect(callback: types.CallbackQuery):
     await callback.message.edit_text(
         "<b>🆘 Техническая поддержка</b>\n\n"
         "Если у вас возникли вопросы по оплате или работе VPN, "
-        "пишите нашему администратору: @твой_логин",
+        "пишите нашему администратору: @lowaton",
         reply_markup=back_to_main_kb()
     )
 
