@@ -8,49 +8,44 @@ load_dotenv()
 
 class XUI:
     def __init__(self):
-        # Убедись, что в .env HOST без лишних пробелов и слешей в конце
-        self.host = os.getenv("XUI_HOST").strip().rstrip('/')
-        self.username = os.getenv("XUI_USER")
-        self.password = os.getenv("XUI_PASS")
+        # Берем URL из .env (https://91.199.32.144:2053/0gAQwcQicov4jpRgFJ/)
+        base_url = os.getenv("PANEL_URL").strip().rstrip('/')
+        self.host = base_url
+        self.username = os.getenv("PANEL_LOGIN")
+        self.password = os.getenv("PANEL_PASSWORD")
+        self.inbound_id = int(os.getenv("INBOUND_ID", 1))
         self.session = requests.Session()
         
-        print(f"[XUI DEBUG] Инициализация: Host={self.host}, User={self.username}")
+        print(f"[XUI] Инициализация. URL: {self.host}, ID: {self.inbound_id}")
 
     def login(self):
         try:
+            # Склеиваем секретный путь с эндпоинтом логина
             url = f"{self.host}/login"
             data = {"username": self.username, "password": self.password}
-            print(f"[XUI DEBUG] Попытка логина: {url}")
             
-            response = self.session.post(url, data=data, timeout=15)
+            response = self.session.post(url, data=data, timeout=10, verify=False) # verify=False т.к. IP обычно без норм SSL
             
-            # Проверяем, что ответил сервер
+            # Для отладки
             if response.status_code != 200:
-                print(f"[XUI DEBUG] Сервер ответил кодом: {response.status_code}")
+                print(f"[XUI] Ошибка логина! Статус: {response.status_code}")
                 return False
                 
             res_json = response.json()
-            print(f"[XUI DEBUG] Ответ логина: {res_json}")
             return res_json.get("success", False)
-            
         except Exception as e:
-            print(f"[XUI DEBUG] КРИТИЧЕСКАЯ ОШИБКА ЛОГИНА: {e}")
+            print(f"[XUI] Критическая ошибка при коннекте: {e}")
             return False
 
     def add_client(self, user_id, device_name):
-        print(f"[XUI DEBUG] Начало процесса add_client для {user_id}")
-        
         if not self.login():
-            print("[XUI DEBUG] Остановка: логин не удался.")
+            print("[XUI] Не удалось авторизоваться в панели.")
             return None
             
         new_uuid = str(uuid.uuid4())
-        # Проверь ID инбаунда в панели! Обычно это 1.
-        inbound_id = 1 
-        
+        # Эндпоинт добавления тоже должен идти после секретного пути
         url = f"{self.host}/panel/api/inbounds/addClient"
         
-        # Структура JSON для 3X-UI (MHSanaei)
         client_data = {
             "id": new_uuid,
             "alterId": 0,
@@ -64,26 +59,20 @@ class XUI:
         }
         
         payload = {
-            "id": inbound_id,
+            "id": self.inbound_id,
             "settings": json.dumps({"clients": [client_data]})
         }
         
-        print(f"[XUI DEBUG] Отправка запроса на добавление: {url}")
-        
         try:
-            response = self.session.post(url, json=payload, timeout=15)
-            print(f"[XUI DEBUG] Статус ответа API: {response.status_code}")
-            
+            response = self.session.post(url, json=payload, timeout=10, verify=False)
             res_data = response.json()
-            print(f"[XUI DEBUG] Данные ответа API: {res_data}")
             
             if res_data.get("success"):
-                print(f"[XUI DEBUG] КЛИЕНТ УСПЕШНО СОЗДАН: {new_uuid}")
+                print(f"[XUI] Клиент создан успешно: {new_uuid}")
                 return new_uuid
             else:
-                print(f"[XUI DEBUG] ОШИБКА ПАНЕЛИ: {res_data.get('msg')}")
+                print(f"[XUI] Панель отклонила запрос: {res_data}")
                 return None
-                
         except Exception as e:
-            print(f"[XUI DEBUG] ОШИБКА ЗАПРОСА API: {e}")
+            print(f"[XUI] Ошибка запроса addClient: {e}")
             return None
