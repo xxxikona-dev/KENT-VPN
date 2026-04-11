@@ -8,7 +8,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from yookassa import Configuration, Payment
-from aiocryptopay import AioCryptoPay  # ИСПРАВЛЕННЫЙ ИМПОРТ
+from aiocryptopay import AioCryptoPay
 
 import database as db
 from xui_api import XUI
