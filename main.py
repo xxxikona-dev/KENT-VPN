@@ -285,9 +285,9 @@ async def help_sect(callback: types.CallbackQuery):
     text = (
         "<b>⚙️ Инструкция по установке:</b>\n\n"
         "1. Скачайте приложение:\n"
-        "— iOS: <b>Streisand</b>\n"
-        "— Android: <b>v2rayNG</b>\n"
-        "— PC: <b>Nekobox</b>\n\n"
+        "— iOS: <b>Happ</b>\n"
+        "— Android: <b>v2rayNG, Happ</b>\n"
+        "— PC: <b>Happ</b>\n\n"
         "2. Скопируйте ваш ключ из Профиля.\n"
         "3. В приложении выберите 'Добавить из буфера'.\n"
         "4. Нажмите кнопку подключения."
