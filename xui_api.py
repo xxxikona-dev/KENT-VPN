@@ -12,7 +12,6 @@ load_dotenv()
 
 class XUI:
     def __init__(self):
-        # PANEL_URL для API (с путем 0gAQwcQicov4jpRgFJ)
         self.host = os.getenv("PANEL_URL", "").strip().rstrip('/')
         self.username = os.getenv("PANEL_LOGIN")
         self.password = os.getenv("PANEL_PASSWORD")
@@ -22,19 +21,24 @@ class XUI:
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             "Accept": "application/json"
         })
+        print(f"!!! [SYSTEM] КЛАСС XUI ЗАГРУЖЕН | РАБОТАЕМ С ID: {self.inbound_id} !!!")
 
     def login(self):
         try:
             url = f"{self.host}/login"
             response = self.session.post(url, data={"username": self.username, "password": self.password}, timeout=10, verify=False)
             return response.json().get("success", False)
-        except: return False
+        except Exception as e:
+            print(f"[DEBUG] Ошибка входа: {e}")
+            return False
 
     def add_client(self, user_id, device_name, days=30):
-        if not self.login(): return None
-        
+        print(f"!!! [DEBUG] ВЫЗВАН МЕТОД add_client ДЛЯ {user_id} !!!")
+        if not self.login():
+            return None
+            
         new_uuid = str(uuid.uuid4())
-        # Генерируем subId
+        # Создаем subId для ссылки
         subscription_id = str(uuid.uuid4()).replace('-', '')[:16]
         expiry_time = int((time.time() + (days * 86400)) * 1000)
         
@@ -53,7 +57,11 @@ class XUI:
         
         try:
             response = self.session.post(url, json=payload, timeout=10, verify=False)
-            if response.json().get("success"):
+            res_data = response.json()
+            print(f"[DEBUG] ОТВЕТ ПАНЕЛИ: {res_data}")
+            if res_data.get("success"):
                 return subscription_id
             return None
-        except: return None
+        except Exception as e:
+            print(f"[DEBUG] Ошибка запроса: {e}")
+            return None
