@@ -4,7 +4,6 @@ import uuid
 import json
 import time
 import urllib3
-import sys
 from dotenv import load_dotenv
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -16,52 +15,44 @@ class XUI:
         self.username = os.getenv("PANEL_LOGIN")
         self.password = os.getenv("PANEL_PASSWORD")
         self.inbound_id = int(os.getenv("INBOUND_ID", 3))
+        self.sni = os.getenv("REALITY_SNI", "www.oracle.com")
         self.session = requests.Session()
-        self.session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Accept": "application/json"
-        })
-        print(f"!!! [SYSTEM] КЛАСС XUI ЗАГРУЖЕН | РАБОТАЕМ С ID: {self.inbound_id} !!!")
+        self.session.headers.update({"Accept": "application/json"})
 
     def login(self):
         try:
             url = f"{self.host}/login"
             response = self.session.post(url, data={"username": self.username, "password": self.password}, timeout=10, verify=False)
             return response.json().get("success", False)
-        except Exception as e:
-            print(f"[DEBUG] Ошибка входа: {e}")
-            return False
+        except: return False
 
     def add_client(self, user_id, device_name, days=30):
-        print(f"!!! [DEBUG] ВЫЗВАН МЕТОД add_client ДЛЯ {user_id} !!!")
-        if not self.login():
-            return None
-            
+        if not self.login(): return None
+        
         new_uuid = str(uuid.uuid4())
-        # Создаем subId для ссылки
         subscription_id = str(uuid.uuid4()).replace('-', '')[:16]
         expiry_time = int((time.time() + (days * 86400)) * 1000)
+        
+        # Формируем имя клиента, которое будет видно в списке
+        client_email = f"UK_{device_name}_{user_id}"
         
         url = f"{self.host}/panel/api/inbounds/addClient"
         client_dict = {
             "id": new_uuid,
             "flow": "xtls-rprx-vision",
-            "email": f"KENT_{user_id}_{int(time.time())%1000}",
+            "email": client_email,
             "limitIp": 2,
             "expiryTime": expiry_time,
             "enable": True,
-            "subId": subscription_id
+            "subId": subscription_id,
+            "tgId": str(user_id)
         }
         
         payload = {"id": self.inbound_id, "settings": json.dumps({"clients": [client_dict]})}
         
         try:
             response = self.session.post(url, json=payload, timeout=10, verify=False)
-            res_data = response.json()
-            print(f"[DEBUG] ОТВЕТ ПАНЕЛИ: {res_data}")
-            if res_data.get("success"):
+            if response.json().get("success"):
                 return subscription_id
             return None
-        except Exception as e:
-            print(f"[DEBUG] Ошибка запроса: {e}")
-            return None
+        except: return None
