@@ -33,40 +33,38 @@ class XUI:
             if response.status_code != 200:
                 print(f"Ошибка логина: Статус {response.status_code}")
                 return False
-            return response.json().get("success", False)
+            result = response.json()
+            return result.get("success", False)
         except Exception as e:
             print(f"Критическая ошибка логина: {e}")
             return False
 
     def add_client(self, user_id, device_name, days=30):
-        if not self.login():
-            print("Не удалось авторизоваться в панели для добавления клиента")
-            return None
-        
-        new_uuid = str(uuid.uuid4())
-        subscription_id = str(uuid.uuid4()).replace('-', '')[:16]
-        expiry_time = int((time.time() + (days * 86400)) * 1000)
-        client_email = f"KENT_{device_name}_{user_id}"
-        
-        # Сначала получаем текущий инбоунд
-        get_url = f"{self.host}/panel/api/inbounds/get/{self.inbound_id}"
         try:
+            if not self.login():
+                print("Не удалось авторизоваться в панели для добавления клиента")
+                return None
+            
+            new_uuid = str(uuid.uuid4())
+            subscription_id = str(uuid.uuid4()).replace('-', '')[:16]
+            expiry_time = int((time.time() + (days * 86400)) * 1000)
+            # Добавляем timestamp чтобы избежать дубликатов
+            client_email = f"KENT_{device_name}_{user_id}_{int(time.time())}"
+            
+            print(f"Добавляем клиента: {client_email}, дней: {days}")
+            
+            # Получаем текущий инбоунд
+            get_url = f"{self.host}/panel/api/inbounds/get/{self.inbound_id}"
             response = self.session.get(get_url, timeout=10)
             inbound_data = response.json()
             
             if not inbound_data.get('success'):
-                print(f"Не удалось получить инбоунд: {inbound_data.get('msg')}")
+                print(f"Не удалось получить инбоунд: {inbound_data}")
                 return None
             
             # Получаем текущих клиентов
             current_settings = json.loads(inbound_data['obj']['settings'])
             current_clients = current_settings.get('clients', [])
-            
-            # Проверяем, не существует ли уже клиент с таким email
-            for client in current_clients:
-                if client.get('email') == client_email:
-                    print(f"Клиент с email {client_email} уже существует")
-                    return None
             
             # Добавляем нового клиента
             new_client = {
@@ -96,22 +94,25 @@ class XUI:
             update_result = update_response.json()
             
             if update_result.get('success'):
+                print(f"Инбоунд обновлён, перезапускаем...")
                 # Перезапускаем инбоунд
                 restart_url = f"{self.host}/panel/api/inbounds/restart/{self.inbound_id}"
                 restart_response = self.session.post(restart_url, timeout=10)
                 
                 if restart_response.json().get('success'):
-                    print(f"Клиент {client_email} успешно добавлен и инбоунд перезапущен")
+                    print(f"✅ Клиент {client_email} успешно добавлен")
                     return subscription_id
                 else:
-                    print(f"Не удалось перезапустить инбоунд: {restart_response.json().get('msg')}")
+                    print(f"❌ Не удалось перезапустить инбоунд")
                     return None
             else:
-                print(f"Не удалось обновить инбоунд: {update_result.get('msg')}")
+                print(f"❌ Не удалось обновить инбоунд: {update_result}")
                 return None
                 
         except Exception as e:
-            print(f"Ошибка при добавлении клиента: {e}")
+            print(f"❌ Ошибка при добавлении клиента: {e}")
+            import traceback
+            traceback.print_exc()
             return None
 
     def remove_client(self, email):
