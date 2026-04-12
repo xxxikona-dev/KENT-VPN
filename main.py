@@ -1,94 +1,157 @@
-import requests
+import asyncio
 import os
-import uuid
-import json
 import time
-import urllib3
-import sys
+import uuid
 from dotenv import load_dotenv
 
-# Отключаем предупреждения о небезопасном SSL (так как используем IP вместо домена)
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+from aiogram import Bot, Dispatcher, F, types
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
+from aiogram.filters import Command
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.context import FSMContext
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+import database as db
+from xui_api import XUI
+
+try:
+    from aiocryptopay import AioCryptoPay, Networks
+    CRYPTOPAY_AVAILABLE = True
+except ImportError:
+    CRYPTOPAY_AVAILABLE = False
+
 load_dotenv()
 
-class XUI:
-    def __init__(self):
-        # Очищаем URL от лишних пробелов и слешей в конце
-        self.host = os.getenv("PANEL_URL", "").strip().rstrip('/')
-        self.username = os.getenv("PANEL_LOGIN")
-        self.password = os.getenv("PANEL_PASSWORD")
-        self.inbound_id = int(os.getenv("INBOUND_ID", 3))
-        self.session = requests.Session()
-        
-        # Заголовки, чтобы панель принимала запросы как от браузера
-        self.session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "application/json"
-        })
-        
-        print(f"!!! [SYSTEM] КЛАСС XUI ЗАГРУЖЕН | РАБОТАЕМ С ID: {self.inbound_id} !!!")
-        sys.stdout.flush()
+ADMIN_IDS = [5153650495] 
+CHANNEL_ID = "@kent_proxy" 
+CHANNEL_URL = "https://t.me/kent_proxy"
+MAX_DEVICES = 5
 
-    def login(self):
-        try:
-            url = f"{self.host}/login"
-            data = {"username": self.username, "password": self.password}
-            response = self.session.post(url, data=data, timeout=10, verify=False)
-            
-            if response.status_code == 200:
-                res = response.json()
-                return res.get("success", False)
-            return False
-        except Exception as e:
-            print(f"[DEBUG] Ошибка авторизации: {e}")
-            return False
+bot = Bot(token=os.getenv("BOT_TOKEN"), default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+dp = Dispatcher()
+xui = XUI()
 
-    def add_client(self, user_id, device_name, days=30):
-        print(f"!!! [DEBUG] ВЫЗВАН МЕТОД add_client ДЛЯ {user_id} !!!")
-        sys.stdout.flush()
-        
-        if not self.login():
-            print("[DEBUG] Не удалось войти в панель")
-            return None
-            
-        new_uuid = str(uuid.uuid4())
-        # Создаем subId — он нужен для формирования "зеленой" ссылки-подписки
-        subscription_id = str(uuid.uuid4()).replace('-', '')[:16]
-        expiry_time = int((time.time() + (days * 86400)) * 1000)
-        client_email = f"KENT_{user_id}_{int(time.time())%1000}"
-        
-        url = f"{self.host}/panel/api/inbounds/addClient"
-        
-        # Настройки клиента. ВАЖНО: flow установлен в xtls-rprx-vision
-        client_dict = {
-            "id": new_uuid,
-            "flow": "xtls-rprx-vision",
-            "email": client_email,
-            "limitIp": 2,
-            "totalGB": 0,
-            "expiryTime": expiry_time,
-            "enable": True,
-            "tgId": str(user_id),
-            "subId": subscription_id
-        }
-        
-        payload = {
-            "id": self.inbound_id,
-            "settings": json.dumps({"clients": [client_dict]})
-        }
-        
-        try:
-            response = self.session.post(url, json=payload, timeout=10, verify=False)
-            res_data = response.json()
-            
-            print(f"[DEBUG] ОТВЕТ ПАНЕЛИ: {res_data}")
-            sys.stdout.flush()
-            
-            if res_data.get("success"):
-                # Возвращаем именно subscription_id для использования в ссылке
-                return subscription_id
-            return None
-        except Exception as e:
-            print(f"[DEBUG] Ошибка запроса к API: {e}")
-            sys.stdout.flush()
-            return None
+crypto = None
+if CRYPTOPAY_AVAILABLE and os.getenv("CRYPTO_PAY_TOKEN"):
+    crypto = AioCryptoPay(token=os.getenv("CRYPTO_PAY_TOKEN"), network=Networks.MAIN_NET)
+
+class FormStates(StatesGroup):
+    waiting_for_name = State()
+    waiting_for_admin_id = State()
+
+async def check_subscription(user_id):
+    if user_id in ADMIN_IDS: return True
+    try:
+        member = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
+        return member.status in ["member", "administrator", "creator"]
+    except: return False
+
+# --- KEYBOARDS ---
+def main_menu_kb(user_id):
+    builder = InlineKeyboardBuilder()
+    builder.row(types.InlineKeyboardButton(text="💎 Купить подписку", callback_data="buy_menu"))
+    builder.row(types.InlineKeyboardButton(text="🎁 Тест на 2 дня", callback_data="take_trial"))
+    builder.row(types.InlineKeyboardButton(text="👤 Профиль", callback_data="profile"),
+                types.InlineKeyboardButton(text="⚙️ Инструкции", callback_data="help"))
+    builder.row(types.InlineKeyboardButton(text="🆘 Поддержка", callback_data="support"))
+    if user_id in ADMIN_IDS:
+        builder.row(types.InlineKeyboardButton(text="👑 Админ-панель", callback_data="admin_panel"))
+    return builder.as_markup()
+
+# --- HANDLERS ---
+@dp.message(Command("start"))
+@dp.callback_query(F.data == "start_over")
+async def cmd_start(event: types.Message | types.CallbackQuery):
+    user_id = event.from_user.id
+    if not await check_subscription(user_id):
+        builder = InlineKeyboardBuilder()
+        builder.row(types.InlineKeyboardButton(text="📢 Подписаться", url=CHANNEL_URL))
+        builder.row(types.InlineKeyboardButton(text="✅ Проверить", callback_data="start_over"))
+        txt = "<b>🚫 Доступ ограничен!</b>\nПодпишитесь на канал, чтобы пользоваться ботом."
+        return await (event.answer(txt, reply_markup=builder.as_markup()) if isinstance(event, types.Message) else event.message.edit_text(txt, reply_markup=builder.as_markup()))
+
+    txt = "<b>🚀 KENTVPN — Твой доступ без границ!</b>"
+    kb = main_menu_kb(user_id)
+    if isinstance(event, types.Message): await event.answer(txt, reply_markup=kb)
+    else: await event.message.edit_text(txt, reply_markup=kb)
+
+@dp.callback_query(F.data == "buy_menu")
+async def buy_menu(callback: types.CallbackQuery):
+    devices = await db.get_user_devices(callback.from_user.id)
+    if len(devices) >= MAX_DEVICES and callback.from_user.id not in ADMIN_IDS:
+        return await callback.answer(f"Лимит {MAX_DEVICES} устройств исчерпан!", show_alert=True)
+    
+    txt = "<b>💎 Premium VPN (30 дней)</b>\n\n💰 Цена: 1 USDT\n⚠️ Лимит: до 5 устройств."
+    builder = InlineKeyboardBuilder()
+    builder.row(types.InlineKeyboardButton(text="💳 Оплатить", callback_data="pay_crypto"))
+    builder.row(types.InlineKeyboardButton(text="⬅️ Назад", callback_data="start_over"))
+    await callback.message.edit_text(txt, reply_markup=builder.as_markup())
+
+@dp.callback_query(F.data == "pay_crypto")
+async def start_pay(callback: types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id in ADMIN_IDS:
+        # Теперь метод возвращает sub_id
+        sub_id = xui.add_client(callback.from_user.id, "Admin_Key", days=365)
+        if sub_id:
+            await db.add_device(callback.from_user.id, "Admin_Key", sub_id, 365)
+            # Формируем ссылку подписки
+            link = os.getenv("VLESS_TEMPLATE").format(sub_id=sub_id)
+            return await callback.message.answer(f"👑 <b>Бесплатно для админа:</b>\n<code>{link}</code>")
+    
+    await callback.message.answer("Введите название устройства (например, iPhone):")
+    await state.set_state(FormStates.waiting_for_name)
+
+@dp.message(FormStates.waiting_for_name)
+async def process_name(message: types.Message, state: FSMContext):
+    await state.update_data(dname=message.text)
+    invoice = await crypto.create_invoice(asset='USDT', amount=1)
+    builder = InlineKeyboardBuilder()
+    builder.row(types.InlineKeyboardButton(text="🔗 Оплатить", url=invoice.bot_invoice_url))
+    builder.row(types.InlineKeyboardButton(text="✅ Проверить", callback_data=f"check_{invoice.invoice_id}"))
+    await message.answer(f"Счет на 1 USDT создан для: {message.text}", reply_markup=builder.as_markup())
+
+@dp.callback_query(F.data.startswith("check_"))
+async def check_p(callback: types.CallbackQuery, state: FSMContext):
+    inv_id = int(callback.data.split("_")[1])
+    invoices = await crypto.get_invoices(invoice_ids=[inv_id])
+    if invoices and invoices[0].status == 'paid':
+        data = await state.get_data()
+        # Получаем sub_id из панели
+        sub_id = xui.add_client(callback.from_user.id, data['dname'], days=30)
+        if sub_id:
+            await db.add_device(callback.from_user.id, data['dname'], sub_id, 30)
+            link = os.getenv("VLESS_TEMPLATE").format(sub_id=sub_id)
+            await callback.message.answer(f"✅ Готово!\n<code>{link}</code>")
+        await state.clear()
+    else: await callback.answer("Не оплачено")
+
+@dp.callback_query(F.data == "take_trial")
+async def process_trial(callback: types.CallbackQuery):
+    if await db.check_trial(callback.from_user.id):
+        return await callback.answer("Вы уже брали тест!", show_alert=True)
+    
+    sub_id = xui.add_client(callback.from_user.id, "Trial", days=2)
+    if sub_id:
+        await db.add_device(callback.from_user.id, "Trial", sub_id, 2)
+        await db.set_trial_used(callback.from_user.id)
+        link = os.getenv("VLESS_TEMPLATE").format(sub_id=sub_id)
+        await callback.message.answer(f"🎁 Тест на 2 дня:\n<code>{link}</code>")
+    else: await callback.answer("Ошибка связи с сервером 3X-UI", show_alert=True)
+
+@dp.callback_query(F.data == "profile")
+async def profile(callback: types.CallbackQuery):
+    devices = await db.get_user_devices(callback.from_user.id)
+    txt = f"<b>👤 Профиль</b>\nКлючи ({len(devices)}/{MAX_DEVICES}):\n"
+    for d in devices:
+        # Используем sub_id (хранится в базе как 'uuid') для формирования ссылки
+        link = os.getenv("VLESS_TEMPLATE").format(sub_id=d['uuid'])
+        txt += f"— {d['device_name']}: <code>{link}</code>\n"
+    await callback.message.edit_text(txt, reply_markup=main_menu_kb(callback.from_user.id))
+
+async def main():
+    await db.init_db()
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
