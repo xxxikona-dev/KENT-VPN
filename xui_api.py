@@ -31,38 +31,32 @@ class XUI:
         new_uuid = str(uuid.uuid4())
         subscription_id = str(uuid.uuid4()).replace('-', '')[:16]
         expiry_time = int((time.time() + (days * 86400)) * 1000)
-        
-        # Название клиента как при ручном вводе
         client_email = f"KENT_{device_name}_{user_id}"
         
         url = f"{self.host}/panel/api/inbounds/addClient"
-        
-        # ВАЖНО: передаем настройки в точности как их ждет API для Reality
         client_dict = {
             "id": new_uuid,
-            "flow": "xtls-rprx-vision", # Это включает Vision flow
+            "flow": "xtls-rprx-vision",
             "email": client_email,
             "limitIp": 2,
-            "totalGB": 0,
             "expiryTime": expiry_time,
             "enable": True,
-            "tgId": str(user_id),
             "subId": subscription_id
         }
         
-        payload = {
-            "id": self.inbound_id,
-            "settings": json.dumps({"clients": [client_dict]})
-        }
+        payload = {"id": self.inbound_id, "settings": json.dumps({"clients": [client_dict]})}
         
         try:
             response = self.session.post(url, json=payload, timeout=10, verify=False)
-            res_json = response.json()
-            if res_json.get("success"):
+            if response.json().get("success"):
+                # Возвращаем subId, чтобы сформировать ссылку на подписку
                 return subscription_id
-            else:
-                print(f"Ошибка панели: {res_json.get('msg')}")
-                return None
-        except Exception as e:
-            print(f"Ошибка запроса: {e}")
             return None
+        except: return None
+
+    # НОВЫЙ МЕТОД: Получаем ссылку прямо из конфига панели
+    def get_subscription_link(self, sub_id):
+        # Твоя рабочая база ссылки на подписку (порт 2096)
+        # Мы просто подставляем sub_id в проверенный формат
+        base_sub_url = f"http://91.199.32.144:2096/sub/{sub_id}"
+        return base_sub_url
