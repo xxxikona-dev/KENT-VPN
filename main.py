@@ -15,6 +15,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 import database as db
 from xui_api import XUI
 
+# Проверка наличия библиотеки для оплаты
 try:
     from aiocryptopay import AioCryptoPay, Networks
     CRYPTOPAY_AVAILABLE = True
@@ -23,6 +24,7 @@ except ImportError:
 
 load_dotenv()
 
+# Настройки проекта
 ADMIN_IDS = [5153650495] 
 CHANNEL_ID = "@kent_proxy" 
 CHANNEL_URL = "https://t.me/kent_proxy"
@@ -38,7 +40,6 @@ if CRYPTOPAY_AVAILABLE and os.getenv("CRYPTO_PAY_TOKEN"):
 
 class FormStates(StatesGroup):
     waiting_for_name = State()
-    waiting_for_admin_id = State()
 
 async def check_subscription(user_id):
     if user_id in ADMIN_IDS: return True
@@ -47,7 +48,6 @@ async def check_subscription(user_id):
         return member.status in ["member", "administrator", "creator"]
     except: return False
 
-# --- KEYBOARDS ---
 def main_menu_kb(user_id):
     builder = InlineKeyboardBuilder()
     builder.row(types.InlineKeyboardButton(text="💎 Купить подписку", callback_data="buy_menu"))
@@ -59,7 +59,6 @@ def main_menu_kb(user_id):
         builder.row(types.InlineKeyboardButton(text="👑 Админ-панель", callback_data="admin_panel"))
     return builder.as_markup()
 
-# --- HANDLERS ---
 @dp.message(Command("start"))
 @dp.callback_query(F.data == "start_over")
 async def cmd_start(event: types.Message | types.CallbackQuery):
@@ -69,7 +68,8 @@ async def cmd_start(event: types.Message | types.CallbackQuery):
         builder.row(types.InlineKeyboardButton(text="📢 Подписаться", url=CHANNEL_URL))
         builder.row(types.InlineKeyboardButton(text="✅ Проверить", callback_data="start_over"))
         txt = "<b>🚫 Доступ ограничен!</b>\nПодпишитесь на канал, чтобы пользоваться ботом."
-        return await (event.answer(txt, reply_markup=builder.as_markup()) if isinstance(event, types.Message) else event.message.edit_text(txt, reply_markup=builder.as_markup()))
+        if isinstance(event, types.Message): return await event.answer(txt, reply_markup=builder.as_markup())
+        return await event.message.edit_text(txt, reply_markup=builder.as_markup())
 
     txt = "<b>🚀 KENTVPN — Твой доступ без границ!</b>"
     kb = main_menu_kb(user_id)
@@ -91,13 +91,11 @@ async def buy_menu(callback: types.CallbackQuery):
 @dp.callback_query(F.data == "pay_crypto")
 async def start_pay(callback: types.CallbackQuery, state: FSMContext):
     if callback.from_user.id in ADMIN_IDS:
-        # Теперь метод возвращает sub_id
         sub_id = xui.add_client(callback.from_user.id, "Admin_Key", days=365)
         if sub_id:
             await db.add_device(callback.from_user.id, "Admin_Key", sub_id, 365)
-            # Формируем ссылку подписки
             link = os.getenv("VLESS_TEMPLATE").format(sub_id=sub_id)
-            return await callback.message.answer(f"👑 <b>Бесплатно для админа:</b>\n<code>{link}</code>")
+            return await callback.message.answer(f"👑 <b>Для админа:</b>\n<code>{link}</code>")
     
     await callback.message.answer("Введите название устройства (например, iPhone):")
     await state.set_state(FormStates.waiting_for_name)
@@ -117,12 +115,11 @@ async def check_p(callback: types.CallbackQuery, state: FSMContext):
     invoices = await crypto.get_invoices(invoice_ids=[inv_id])
     if invoices and invoices[0].status == 'paid':
         data = await state.get_data()
-        # Получаем sub_id из панели
         sub_id = xui.add_client(callback.from_user.id, data['dname'], days=30)
         if sub_id:
             await db.add_device(callback.from_user.id, data['dname'], sub_id, 30)
             link = os.getenv("VLESS_TEMPLATE").format(sub_id=sub_id)
-            await callback.message.answer(f"✅ Готово!\n<code>{link}</code>")
+            await callback.message.answer(f"✅ Оплачено!\n<code>{link}</code>")
         await state.clear()
     else: await callback.answer("Не оплачено")
 
@@ -137,14 +134,13 @@ async def process_trial(callback: types.CallbackQuery):
         await db.set_trial_used(callback.from_user.id)
         link = os.getenv("VLESS_TEMPLATE").format(sub_id=sub_id)
         await callback.message.answer(f"🎁 Тест на 2 дня:\n<code>{link}</code>")
-    else: await callback.answer("Ошибка связи с сервером 3X-UI", show_alert=True)
+    else: await callback.answer("Ошибка связи с сервером", show_alert=True)
 
 @dp.callback_query(F.data == "profile")
 async def profile(callback: types.CallbackQuery):
     devices = await db.get_user_devices(callback.from_user.id)
     txt = f"<b>👤 Профиль</b>\nКлючи ({len(devices)}/{MAX_DEVICES}):\n"
     for d in devices:
-        # Используем sub_id (хранится в базе как 'uuid') для формирования ссылки
         link = os.getenv("VLESS_TEMPLATE").format(sub_id=d['uuid'])
         txt += f"— {d['device_name']}: <code>{link}</code>\n"
     await callback.message.edit_text(txt, reply_markup=main_menu_kb(callback.from_user.id))
