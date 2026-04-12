@@ -6,64 +6,66 @@ import time
 import urllib3
 from dotenv import load_dotenv
 
-# Отключаем надоедливые предупреждения об отсутствии SSL-сертификата в консоли
+# Полностью отключаем логи об SSL, чтобы видеть только важные данные
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 load_dotenv()
 
 class XUI:
     def __init__(self):
-        # Очищаем URL от лишних пробелов и слешей
-        self.host = os.getenv("PANEL_URL", "").strip().rstrip('/')
+        # Очистка URL: убираем лишние пробелы и финальные слеши
+        raw_url = os.getenv("PANEL_URL", "").strip().rstrip('/')
+        self.host = raw_url
         self.username = os.getenv("PANEL_LOGIN")
         self.password = os.getenv("PANEL_PASSWORD")
         self.inbound_id = int(os.getenv("INBOUND_ID", 3))
         self.session = requests.Session()
         
-        # Печатаем конфиг для проверки в терминале при запуске
-        print(f"[XUI] Загружен: {self.host} | Inbound ID: {self.inbound_id}")
+        print(f"[DEBUG] XUI Инициализирован. URL: {self.host}")
 
     def login(self):
-        """Авторизация в панели 3X-UI"""
+        """Метод авторизации с выводом ответа сервера в консоль"""
         try:
             url = f"{self.host}/login"
             data = {"username": self.username, "password": self.password}
             
-            # verify=False игнорирует отсутствие SSL на IP-адресе
             response = self.session.post(url, data=data, timeout=10, verify=False)
             
-            if response.status_code == 200:
-                res_json = response.json()
-                return res_json.get("success", False)
-            return False
+            # Если сервер ответил не 200, значит путь PANEL_URL указан неверно
+            if response.status_code != 200:
+                print(f"[DEBUG] Ошибка логина! Статус: {response.status_code}. Проверь PANEL_URL.")
+                return False
+                
+            res_json = response.json()
+            if not res_json.get("success"):
+                print(f"[DEBUG] Панель отклонила логин/пароль: {res_json}")
+                return False
+                
+            return True
         except Exception as e:
-            print(f"[XUI Error] Ошибка логина: {e}")
+            print(f"[DEBUG] Ошибка подключения к серверу: {e}")
             return False
 
     def add_client(self, user_id, device_name, days=30):
-        """Создает нового клиента в панели и возвращает его UUID"""
+        """Метод добавления клиента"""
         if not self.login():
-            print("[XUI Error] Не удалось войти в панель")
             return None
             
         new_uuid = str(uuid.uuid4())
-        # Время истечения: текущее время + дни в миллисекундах
+        # Время в мс для 3X-UI
         expiry_time = int((time.time() + (days * 86400)) * 1000)
         
-        # Генерируем уникальный email, чтобы не было конфликтов
-        # Например: user_5153650495_a1b2
-        short_id = str(uuid.uuid4())[:4]
-        client_email = f"user_{user_id}_{short_id}"
+        # Email должен быть уникальным, иначе панель выдаст ошибку
+        client_email = f"ID{user_id}_{int(time.time()) % 10000}"
         
         url = f"{self.host}/panel/api/inbounds/addClient"
         
-        # Настройки клиента для 3X-UI (VLESS Reality)
         client_dict = {
             "id": new_uuid,
             "flow": "",
             "email": client_email,
-            "limitIp": 2, # Лимит: 2 одновременных подключения
-            "totalGB": 0, # 0 = безлимит по трафику
+            "limitIp": 2,
+            "totalGB": 0,
             "expiryTime": expiry_time,
             "enable": True,
             "tgId": str(user_id),
@@ -79,13 +81,15 @@ class XUI:
             response = self.session.post(url, json=payload, timeout=10, verify=False)
             res_data = response.json()
             
+            # Печатаем ответ в терминал, чтобы видеть причину, если в панели 'пусто'
+            print(f"[DEBUG] Ответ на addClient: {res_data}")
+            
             if res_data.get("success"):
-                print(f"[XUI Success] Клиент создан: {client_email}")
+                print(f"✅ Успех! Ключ создан для {user_id}")
                 return new_uuid
             else:
-                # Если здесь ошибка "Inbound not found", проверь INBOUND_ID в .env
-                print(f"[XUI Error] Панель отклонила: {res_data.get('msg')}")
+                print(f"❌ Панель отказала: {res_data.get('msg')}")
                 return None
         except Exception as e:
-            print(f"[XUI Error] Ошибка запроса: {e}")
+            print(f"[DEBUG] Ошибка запроса API: {e}")
             return None
