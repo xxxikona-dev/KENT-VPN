@@ -31,7 +31,7 @@ dp = Dispatcher()
 xui = XUI()
 
 # Инициализация Crypto Pay
-crypto = AioCryptoPay(token=os.getenv("CRYPTOBOT_TOKEN"), network=Networks.MAIN_NET)
+crypto = AioCryptoPay(token=os.getenv("CRYPTO_PAY_TOKEN"), network=Networks.MAIN_NET)
 
 # --- ФУНКЦИИ ПРОВЕРКИ ---
 
