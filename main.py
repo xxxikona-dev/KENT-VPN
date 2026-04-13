@@ -2,7 +2,7 @@ import asyncio
 import os
 import logging
 import uuid
-import re
+import time
 from dotenv import load_dotenv
 
 from aiogram import Bot, Dispatcher, F, types
@@ -61,7 +61,7 @@ def main_menu_kb(user_id: int):
 async def cmd_start(event: types.Message | types.CallbackQuery):
     user_id = event.from_user.id
     
-    # Регистрация в БД
+    # Регистрация в БД (используем add_user_to_db из обновленного файла базы)
     await db.add_user_to_db(user_id, event.from_user.username)
 
     if not await check_subscription(user_id):
@@ -94,11 +94,16 @@ async def buy_menu(callback: types.CallbackQuery):
             return await callback.message.answer(f"✅ <b>VIP готов:</b> <code>{BASE_SUB_URL}/{sub_id}</code>")
 
     try:
-        # Создаем платеж
-        payment_id = str(uuid.uuid4())
-        invoice = await crypto.create_invoice(asset='USDT', amount=PRICE_USDT, payload=payment_id)
+        # Исправлено: добавлены description и строковый payload для устранения ошибки сериализации
+        payment_payload = str(user_id)
+        invoice = await crypto.create_invoice(
+            asset='USDT', 
+            amount=PRICE_USDT, 
+            description="KENT-VPN Premium 30 Days",
+            payload=payment_payload
+        )
         
-        # Получаем URL (учитываем разные версии API)
+        # Получаем URL оплаты
         pay_url = getattr(invoice, 'bot_invoice_url', None) or getattr(invoice, 'pay_url', None)
 
         txt = (
@@ -129,6 +134,7 @@ async def check_pay_status(callback: types.CallbackQuery):
             user_id = callback.from_user.id
             sub_id = xui.add_client(user_id, days=30)
             if sub_id:
+                # В базе используется expiry_days, который внутри превращается в дату
                 await db.add_device(user_id, "KENT Premium", sub_id, 30)
                 link = f"{BASE_SUB_URL}/{sub_id}"
                 await callback.message.answer(f"🚀 <b>Оплата прошла!</b>\n\nТвоя ссылка на 30 дней:\n<code>{link}</code>\n\nИспользуй приложение <b>Happ</b>.")
@@ -165,8 +171,10 @@ async def show_profile(callback: types.CallbackQuery):
         txt += "У тебя пока нет активных подписок."
     else:
         for d in devices:
+            # Расчет оставшихся дней на основе expiry_date из БД
+            days_left = int((d['expiry_date'] - time.time()) / 86400)
             link = f"{BASE_SUB_URL}/{d['uuid']}"
-            txt += f"📍 <b>{d['device_name']}</b>:\n<code>{link}</code>\n\n"
+            txt += f"📍 <b>{d['device_name']}</b> (Осталось: {max(0, days_left)} дн.):\n<code>{link}</code>\n\n"
     
     builder = InlineKeyboardBuilder()
     builder.row(types.InlineKeyboardButton(text="⬅️ Назад", callback_data="start_over"))
