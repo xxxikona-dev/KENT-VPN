@@ -25,8 +25,8 @@ async def init_db():
         ''')
         await db.commit()
 
-async def add_user_if_not_exists(user_id):
-    """Регистрирует пользователя, если его нет в базе"""
+async def add_user_to_db(user_id, username=None):
+    """Регистрирует пользователя (исправленное название для main.py)"""
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             "INSERT OR IGNORE INTO users (user_id, registration_date) VALUES (?, ?)",
@@ -35,7 +35,7 @@ async def add_user_if_not_exists(user_id):
         await db.commit()
 
 async def check_trial(user_id):
-    """Проверяет, использовал ли пользователь пробный период"""
+    """Проверяет использование триала"""
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("SELECT trial_used FROM users WHERE user_id = ?", (user_id,)) as cursor:
             row = await cursor.fetchone()
@@ -55,7 +55,12 @@ async def add_device(user_id, device_name, u_uuid, expiry_days):
     """Добавляет устройство с расчетом даты истечения"""
     expiry_date = int(time.time()) + (expiry_days * 86400)
     async with aiosqlite.connect(DB_PATH) as db:
-        await add_user_if_not_exists(user_id)
+        # Убеждаемся, что юзер есть в базе
+        await db.execute(
+            "INSERT OR IGNORE INTO users (user_id, registration_date) VALUES (?, ?)",
+            (user_id, int(time.time()))
+        )
+        # Добавляем само устройство
         await db.execute(
             "INSERT INTO devices (user_id, device_name, uuid, expiry_date) VALUES (?, ?, ?, ?)",
             (user_id, device_name, u_uuid, expiry_date)
@@ -63,7 +68,7 @@ async def add_device(user_id, device_name, u_uuid, expiry_days):
         await db.commit()
 
 async def get_user_devices(user_id):
-    """Получает список устройств в виде словарей"""
+    """Получает список устройств пользователя"""
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM devices WHERE user_id = ?", (user_id,)) as cursor:
