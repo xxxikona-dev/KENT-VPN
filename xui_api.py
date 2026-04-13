@@ -21,16 +21,25 @@ class XUI:
     def login(self):
         try:
             url = f"{self.host}/login"
-            response = self.session.post(url, data={"username": self.username, "password": self.password}, timeout=10, verify=False)
-            return response.json().get("success", False)
-        except: return False
+            response = self.session.post(
+                url, 
+                data={"username": self.username, "password": self.password}, 
+                timeout=10, 
+                verify=False
+            )
+            res = response.json()
+            if not res.get("success"):
+                print(f"❌ Ошибка входа: {res.get('msg')}")
+            return res.get("success", False)
+        except Exception as e:
+            print(f"❌ Ошибка подключения к панели: {e}")
+            return False
 
     def add_client(self, user_id, device_name, days=30):
-        if not self.login(): return None
+        if not self.login():
+            return None
         
-        # Генерируем данные клиента
         new_uuid = str(uuid.uuid4())
-        # Тот самый subId, который создает "подписку" в панели
         subscription_id = str(uuid.uuid4()).replace('-', '')[:16]
         expiry_time = int((time.time() + (days * 86400)) * 1000)
         client_email = f"KENT_{device_name}_{user_id}"
@@ -49,12 +58,22 @@ class XUI:
             "subId": subscription_id
         }
         
-        payload = {"id": self.inbound_id, "settings": json.dumps({"clients": [client_dict]})}
+        payload = {
+            "id": self.inbound_id,
+            "settings": json.dumps({"clients": [client_dict]})
+        }
         
         try:
             response = self.session.post(url, json=payload, timeout=10, verify=False)
-            if response.json().get("success"):
-                # Возвращаем subId, чтобы бот подставил его в рабочую ссылку
+            res_json = response.json()
+            
+            # ВЫВОД В КОНСОЛЬ ДЛЯ ТЕБЯ
+            print(f"--- Ответ панели для {client_email} ---")
+            print(json.dumps(res_json, indent=2, ensure_ascii=False))
+            
+            if res_json.get("success"):
                 return subscription_id
             return None
-        except: return None
+        except Exception as e:
+            print(f"❌ Ошибка запроса addClient: {e}")
+            return None
