@@ -99,25 +99,29 @@ async def process_trial(callback: types.CallbackQuery):
         return await callback.answer("❌ Вы уже использовали пробный период!", show_alert=True)
     
     print(f"Попытка выдать тест для {user_id}...")
-    sub_id = xui.add_client(user_id, "Trial_Device", days=2)
-    
-    if sub_id:
-        await db.add_device(user_id, "Trial_Device", sub_id, 2)
-        await db.set_trial_used(user_id)
+    try:
+        sub_id = xui.add_client(user_id, "Trial_Device", days=2)
         
-        # Берем шаблон из .env (там должен быть порт 2096)
-        link = os.getenv("VLESS_TEMPLATE").format(sub_id=sub_id)
-        
-        await callback.message.answer(
-            f"🎁 <b>Тестовый доступ на 2 дня готов!</b>\n\n"
-            f"Твоя ссылка (нажми, чтобы скопировать):\n"
-            f"<code>{link}</code>\n\n"
-            f"Инструкция по кнопке ниже 👇", 
-            reply_markup=main_menu_kb(user_id)
-        )
-    else:
-        print(f"ОШИБКА: Панель не вернула sub_id для пользователя {user_id}")
-        await callback.answer("⚠️ Ошибка связи с сервером. Попробуйте позже.", show_alert=True)
+        if sub_id:
+            await db.add_device(user_id, "Trial_Device", sub_id, 2)
+            await db.set_trial_used(user_id)
+            
+            # ПРЯМАЯ ССЫЛКА НА ПОДПИСКУ (как в панели вручную)
+            link = f"http://91.199.32.144:2096/sub/{sub_id}"
+            
+            await callback.message.answer(
+                f"🎁 <b>Тестовый доступ на 2 дня готов!</b>\n\n"
+                f"Твоя ссылка (нажми, чтобы скопировать):\n"
+                f"<code>{link}</code>\n\n"
+                f"Инструкция по кнопке ниже 👇", 
+                reply_markup=main_menu_kb(user_id)
+            )
+        else:
+            print(f"ОШИБКА: Панель вернула None для {user_id}")
+            await callback.answer("⚠️ Панель не ответила. Проверьте соединение.", show_alert=True)
+    except Exception as e:
+        print(f"Критическая ошибка в take_trial: {e}")
+        await callback.answer("⚠️ Ошибка сервера бота.", show_alert=True)
 
 @dp.callback_query(F.data == "profile")
 async def profile(callback: types.CallbackQuery):
@@ -130,8 +134,8 @@ async def profile(callback: types.CallbackQuery):
     else:
         txt += f"Твои устройства ({len(devices)}/{MAX_DEVICES}):\n\n"
         for d in devices:
-            # d['uuid'] — это subId, сохраненный в БД при создании
-            link = os.getenv("VLESS_TEMPLATE").format(sub_id=d['uuid'])
+            # Используем формат ссылки, который точно работает
+            link = f"http://91.199.32.144:2096/sub/{d['uuid']}"
             txt += f"📍 <b>{d['device_name']}</b>\n<code>{link}</code>\n\n"
     
     builder = InlineKeyboardBuilder()
@@ -181,7 +185,7 @@ async def check_p(callback: types.CallbackQuery, state: FSMContext):
         
         if sub_id:
             await db.add_device(callback.from_user.id, data['dname'], sub_id, 30)
-            link = os.getenv("VLESS_TEMPLATE").format(sub_id=sub_id)
+            link = f"http://91.199.32.144:2096/sub/{sub_id}"
             await callback.message.answer(f"✅ Оплата принята!\nТвоя ссылка:\n<code>{link}</code>")
             await state.clear()
         else:
@@ -195,7 +199,7 @@ async def help_info(callback: types.CallbackQuery):
         "<b>📖 Как подключить VPN?</b>\n\n"
         "1. Скопируй ссылку из профиля или сообщения.\n"
         "2. Установи приложение <b>Streisand</b> (iOS) или <b>v2rayNG</b> (Android).\n"
-        "3. В приложении нажми '+' и выбери <b>'Add Subscription'</b> (или 'Import from Clipboard').\n"
+        "3. В приложении нажми '+' и выбери <b>'Add Subscription'</b>.\n"
         "4. Вставь ссылку и обнови список серверов.\n"
         "5. Выбери сервер и нажми 'Подключить'."
     )
