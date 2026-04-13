@@ -6,7 +6,7 @@ import time
 import urllib3
 from dotenv import load_dotenv
 
-# Игнорируем предупреждения об отсутствии SSL (для работы по прямому IP)
+# Отключаем ворнинги SSL, так как работаем с IP сервера напрямую
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 load_dotenv()
 
@@ -17,11 +17,10 @@ class XUI:
         self.password = os.getenv("PANEL_PASSWORD")
         self.inbound_id = int(os.getenv("INBOUND_ID", 3))
         self.session = requests.Session()
-        # Ставим заголовки, чтобы панель принимала нас за браузер
         self.session.headers.update({"Accept": "application/json"})
 
     def login(self):
-        """Вход в панель и сохранение Cookies в сессии"""
+        """Вход в панель 3X-UI"""
         try:
             url = f"{self.host}/login"
             response = self.session.post(
@@ -30,48 +29,46 @@ class XUI:
                 timeout=10, 
                 verify=False
             )
-            res_json = response.json()
-            return res_json.get("success", False)
+            return response.json().get("success", False)
         except Exception as e:
-            print(f"❌ Критическая ошибка логина: {e}")
+            print(f"❌ Ошибка входа в панель: {e}")
             return False
 
-    def add_client(self, user_id, device_name="Device", days=30):
+    def add_client(self, user_id, days=30):
         """
-        Добавляет клиента в панель.
-        Flow оставляем пустым, чтобы работало автоматически.
-        Email используем как название локации.
+        Добавление клиента в панель.
+        days=2 (для теста) или days=30 (для покупки).
         """
         if not self.login():
             return None
         
-        # Генерируем уникальные идентификаторы
+        # Генерация уникальных данных для протокола VLESS
         new_uuid = str(uuid.uuid4())
-        # sub_id - это то, что будет в конце ссылки /sub/xxxx
+        # sub_id для формирования красивой ссылки
         subscription_id = str(uuid.uuid4()).replace('-', '')[:16]
         
-        # Название подписки. Используем ID пользователя для уникальности в базе,
-        # но в самом приложении будет видно "Великобритания".
+        # Название, которое отобразится в Streisand/v2rayNG
         display_name = f"🇬🇧[UK] Великобритания | {user_id}"
         
-        # Рассчитываем дату окончания
-        expiry_time = int((time.time() + (days * 86400)) * 1000)
+        # РАСЧЕТ СРОКА ДЕЙСТВИЯ (в миллисекундах для 3X-UI)
+        # Текущее время + секунды в днях, умножаем на 1000
+        expiry_time = int((time.time() + (int(days) * 86400)) * 1000)
         
         url = f"{self.host}/panel/api/inbounds/addClient"
         
-        # Формируем настройки клиента БЕЗ ПОЛЯ FLOW
+        # Основной объект настроек клиента
         client_dict = {
             "id": new_uuid,
             "email": display_name,
             "limitIp": 2,
             "totalGB": 0,
-            "expiryTime": expiry_time,
+            "expiryTime": expiry_time, # Срок действия подставляется из переданных дней
             "enable": True,
             "tgId": str(user_id),
             "subId": subscription_id
         }
         
-        # Данные для отправки в панель
+        # Упаковка для API (поле Flow НЕ ПЕРЕДАЕМ, оно должно быть пустым)
         payload = {
             "id": self.inbound_id,
             "settings": json.dumps({"clients": [client_dict]})
@@ -86,15 +83,16 @@ class XUI:
             )
             res_json = response.json()
             
-            # Отладочный вывод в консоль
-            print(f"--- Результат для пользователя {user_id} ---")
-            print(json.dumps(res_json, indent=2, ensure_ascii=False))
+            # Лог для тебя в консоли
+            print(f"--- Создание клиента ---")
+            print(f"Дней: {days} | ID: {user_id} | Результат: {res_json.get('success')}")
             
             if res_json.get("success"):
                 return subscription_id
             else:
+                print(f"❌ Ошибка панели: {res_json.get('msg')}")
                 return None
                 
         except Exception as e:
-            print(f"❌ Ошибка при отправке запроса addClient: {e}")
+            print(f"❌ Критическая ошибка при добавлении: {e}")
             return None
