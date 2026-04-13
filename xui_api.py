@@ -28,19 +28,24 @@ class XUI:
     def add_client(self, user_id, device_name, days=30):
         if not self.login(): return None
         
+        # Генерируем данные клиента
         new_uuid = str(uuid.uuid4())
+        # Тот самый subId, который создает "подписку" в панели
         subscription_id = str(uuid.uuid4()).replace('-', '')[:16]
         expiry_time = int((time.time() + (days * 86400)) * 1000)
         client_email = f"KENT_{device_name}_{user_id}"
         
         url = f"{self.host}/panel/api/inbounds/addClient"
+        
         client_dict = {
             "id": new_uuid,
             "flow": "xtls-rprx-vision",
             "email": client_email,
             "limitIp": 2,
+            "totalGB": 0,
             "expiryTime": expiry_time,
             "enable": True,
+            "tgId": str(user_id),
             "subId": subscription_id
         }
         
@@ -49,14 +54,7 @@ class XUI:
         try:
             response = self.session.post(url, json=payload, timeout=10, verify=False)
             if response.json().get("success"):
-                # Возвращаем subId, чтобы сформировать ссылку на подписку
+                # Возвращаем subId, чтобы бот подставил его в рабочую ссылку
                 return subscription_id
             return None
         except: return None
-
-    # НОВЫЙ МЕТОД: Получаем ссылку прямо из конфига панели
-    def get_subscription_link(self, sub_id):
-        # Твоя рабочая база ссылки на подписку (порт 2096)
-        # Мы просто подставляем sub_id в проверенный формат
-        base_sub_url = f"http://91.199.32.144:2096/sub/{sub_id}"
-        return base_sub_url
