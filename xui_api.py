@@ -6,114 +6,96 @@ import time
 import urllib3
 from dotenv import load_dotenv
 
-# Отключаем предупреждения об отсутствии SSL-сертификата при обращении по IP
+# Отключаем предупреждения SSL для работы по IP
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 load_dotenv()
 
 class XUI:
     def __init__(self):
-        # URL твоей панели (например, https://91.199.32.144:2096)
+        # URL твоей панели из .env (например, https://91.199.32.144:2096)
         self.host = os.getenv("PANEL_URL", "").strip().rstrip('/')
         self.username = os.getenv("PANEL_LOGIN")
         self.password = os.getenv("PANEL_PASSWORD")
-        # ID твоего Inbound (судя по скринам, это 3)
+        # ID твоего Inbound (у тебя это 3)
         self.inbound_id = int(os.getenv("INBOUND_ID", 3))
         self.session = requests.Session()
         self.session.headers.update({"Accept": "application/json"})
 
     def login(self):
-        """Авторизация в панели для получения Cookies"""
+        """Авторизация в панели для получения сессии"""
         try:
             url = f"{self.host}/login"
             response = self.session.post(
                 url, 
-                data={
-                    "username": self.username, 
-                    "password": self.password
-                }, 
+                data={"username": self.username, "password": self.password}, 
                 timeout=10, 
                 verify=False
             )
-            res_json = response.json()
-            if res_json.get("success"):
-                return True
-            else:
-                print(f"❌ Ошибка входа: {res_json.get('msg')}")
-                return False
+            return response.json().get("success", False)
         except Exception as e:
-            print(f"❌ Ошибка соединения с панелью при логине: {e}")
+            print(f"❌ Ошибка входа в панель: {e}")
             return False
 
     def add_client(self, user_id, device_name="Device", days=30):
         """
-        Добавление клиента. 
-        Поле Flow оставлено пустым, так как твоя панель 
-        подставляет параметры автоматически.
+        Добавление клиента с чистым названием [UK] Великобритания.
+        Flow оставляем пустым, как мы выяснили — так работает.
         """
         if not self.login():
             return None
         
-        # Генерация уникальных данных клиента
+        # Генерируем UUID и ID подписки
         new_uuid = str(uuid.uuid4())
-        # sub_id — уникальный хвост для ссылки подписки
         subscription_id = str(uuid.uuid4()).replace('-', '')[:16]
-        # Email клиента (уникальное имя в списке панели)
-        client_email = f"KENT_{user_id}_{str(uuid.uuid4())[:4]}"
-        # Время истечения в миллисекундах
+        
+        # --- НАСТРОЙКА ИМЕНИ ---
+        # Чтобы не было цифр в приложении, мы используем спецсимвол или 
+        # скрываем ID пользователя в Email, чтобы панель разрешила создание.
+        # В большинстве приложений будет отображаться только часть до спецсимвола.
+        client_email = f"[UK] Великобритания | {user_id}"
+        
+        # Рассчитываем время жизни (30 дней по умолчанию)
         expiry_time = int((time.time() + (days * 86400)) * 1000)
         
         url = f"{self.host}/panel/api/inbounds/addClient"
         
-        # Словарь клиента. Flow НЕ УКАЗЫВАЕМ, чтобы было 'Пусто'
+        # Формируем данные клиента
         client_dict = {
             "id": new_uuid,
-            "email": client_email,
-            "limitIp": 2,
-            "totalGB": 0,
+            "email": client_email, # Это станет названием прокси в Streisand
+            "limitIp": 2,          # Лимит на 2 устройства
+            "totalGB": 0,          # Безлимит трафика
             "expiryTime": expiry_time,
             "enable": True,
             "tgId": str(user_id),
             "subId": subscription_id
         }
         
-        # Упаковываем в структуру, которую ждет API панели
+        # Отправляем JSON в панель
         payload = {
             "id": self.inbound_id,
             "settings": json.dumps({"clients": [client_dict]})
         }
         
         try:
-            response = self.session.post(
-                url, 
-                json=payload, 
-                timeout=10, 
-                verify=False
-            )
+            response = self.session.post(url, json=payload, timeout=10, verify=False)
             res_json = response.json()
             
-            # Лог в консоль для проверки
-            print(f"--- Ответ панели для пользователя {user_id} ---")
+            # Логируем результат в консоль
+            print(f"--- Создание клиента для TG:{user_id} ---")
             print(json.dumps(res_json, indent=2, ensure_ascii=False))
             
             if res_json.get("success"):
-                # Возвращаем subId, чтобы main.py собрал ссылку
                 return subscription_id
             else:
-                print(f"❌ Панель вернула ошибку: {res_json.get('msg')}")
+                # Если такой Email уже есть, добавим немного рандома (защита от ошибок)
+                client_dict["email"] = f"[UK] Великобритания ({str(uuid.uuid4())[:4]})"
+                payload["settings"] = json.dumps({"clients": [client_dict]})
+                retry_response = self.session.post(url, json=payload, timeout=10, verify=False)
+                if retry_response.json().get("success"):
+                    return subscription_id
                 return None
                 
         except Exception as e:
-            print(f"❌ Критическая ошибка при добавлении клиента: {e}")
-            return None
-
-    def get_client_usage(self, email):
-        """Дополнительный метод: получение статистики (если понадобится)"""
-        if not self.login():
-            return None
-            
-        url = f"{self.host}/panel/api/inbounds/getClientTraffics/{email}"
-        try:
-            response = self.session.get(url, timeout=10, verify=False)
-            return response.json()
-        except:
+            print(f"❌ Ошибка запроса addClient: {e}")
             return None
