@@ -23,37 +23,44 @@ class XUI:
     def login(self):
         try:
             url = f"{self.host}/login"
-            response = self.session.post(url, data={"username": self.username, "password": self.password}, timeout=10, verify=False)
-            return response.json().get("success", False)
+            res = self.session.post(url, data={"username": self.username, "password": self.password}, timeout=10, verify=False)
+            return res.json().get("success", False)
         except Exception as e:
-            logging.error(f"Login Error: {e}")
+            logging.error(f"XUI Login Error: {e}")
             return False
 
     def add_client(self, user_id, days=30):
         if not self.login(): return None
-        new_uuid = str(uuid.uuid4())
-        subscription_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=16))
-        invisible_padding = " " * 50 
-        display_email = f"{invisible_padding}kent_{str(user_id)[:4]}" 
-        expiry_time = int((time.time() + (int(days) * 86400)) * 1000)
+        
+        client_uuid = str(uuid.uuid4())
+        sub_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=16))
+        expiry = int((time.time() + (int(days) * 86400)) * 1000)
+        
+        # Красивое отображение в панели
+        display_email = (" " * 40) + f"kent_{str(user_id)[:5]}"
         
         url = f"{self.host}/panel/api/inbounds/addClient"
-        client_dict = {
-            "id": new_uuid,
+        client_data = {
+            "id": client_uuid,
             "email": display_email,
             "limitIp": 2,
             "totalGB": 0,
-            "expiryTime": expiry_time,
+            "expiryTime": expiry,
             "enable": True,
             "tgId": str(user_id),
-            "subId": subscription_id
+            "subId": sub_id
         }
-        payload = {"id": self.inbound_id, "settings": json.dumps({"clients": [client_dict]})}
+        
+        payload = {
+            "id": self.inbound_id,
+            "settings": json.dumps({"clients": [client_data]})
+        }
         
         try:
-            response = self.session.post(url, json=payload, timeout=10, verify=False)
-            if response.json().get("success"):
-                return subscription_id
+            res = self.session.post(url, json=payload, timeout=10, verify=False)
+            if res.json().get("success"):
+                return sub_id
             return None
-        except:
+        except Exception as e:
+            logging.error(f"XUI Add Client Error: {e}")
             return None
