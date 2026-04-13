@@ -213,10 +213,14 @@ async def main():
     print("Инициализация базы данных...")
     await db.init_db()
     print("Бот KENTVPN запущен и готов к работе!")
-    await dp.start_polling(bot)
+    try:
+        await dp.start_polling(bot)
+    finally:
+        # Корректно закрываем сессию при выключении
+        await bot.session.close()
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
-        print("Бот остановлен.")
+        print("Бот остановлен пользователем.")
